@@ -52,3 +52,13 @@
 @media (min-width:761px){
   .mobile-bottom-nav{display:none !important}
 }
+
+.mobile-order-list{
+  display:none;
+}
+
+@media(max-width:760px){
+  .mobile-order-list{
+    display:block;
+  }
+}
