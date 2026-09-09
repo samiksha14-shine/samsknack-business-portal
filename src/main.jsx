@@ -107,13 +107,1166 @@ function ProductLine({index,item,products,update,remove,canRemove}){
 }
 function fileData(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file)})}
 
-function OrdersView({page,data,credential,onSaved,navigate,categories}){const [q,setQ]=useState(''),[type,setType]=useState('All'),[cat,setCat]=useState('All Categories'),[status,setStatus]=useState('All Statuses');const wanted=page==='pending'?[...data.orders].filter(o=>!['Delivered','Cancelled / Damaged'].includes(o.status)).sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0)):page==='delivered'?[...data.orders].filter(o=>o.status==='Delivered').sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0)):page==='cancelled'?[...data.orders].filter(o=>o.status==='Cancelled / Damaged').sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0)):[...data.orders].sort((a,b)=>{const rank=o=>o.status==='Cancelled / Damaged'?2:o.status==='Delivered'?1:0;return rank(a)-rank(b)||new Date(b.createdAt||0)-new Date(a.createdAt||0)});const filtered=wanted.filter(o=>{const text=((o.customer||'')+' '+(o.phone||'')+' '+(o.code||'')).toLowerCase();const items=data.order_items.filter(i=>String(i.orderId)===String(o.id));const cats=[...(o.categories||[]),...items.map(i=>i.category)];return text.includes(q.toLowerCase())&&(type==='All'||o.type===type)&&(cat==='All Categories'||cats.includes(cat))&&(status==='All Statuses'||o.status===status)});const change=async(o,s)=>{try{await api('updateOrder',{order:{id:o.id,status:s}},credential);await onSaved()}catch(e){alert(e.message)}};return <div><div className="page-heading"><div><div className="eyebrow">ORDERS</div><h1>{page==='all-orders'?'All Orders':page==='pending'?'Pending Orders':page==='delivered'?'Delivered Orders':'Cancelled / Damaged Orders'}</h1><p>Search and update orders from any phone.</p></div><button className="primary-btn" onClick={()=>navigate('new-order')}><Plus size={18}/> New Order</button></div><section className="panel table-panel"><div className="filters"><div className="search"><Search size={17}/><input placeholder="Search customer, phone or SKC…" value={q} onChange={e=>setQ(e.target.value)}/></div><select value={type} onChange={e=>setType(e.target.value)}><option>All</option><option>Personal</option><option>Bulk</option></select><select value={cat} onChange={e=>setCat(e.target.value)}><option>All Categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select><select value={status} onChange={e=>setStatus(e.target.value)}><option>All Statuses</option>{['Pending','In Production','Ready','Delivered','Cancelled / Damaged'].map(s=><option key={s}>{s}</option>)}</select></div><div className="desktop-table"><div className="table-wrap"><table><thead><tr><th>Customer</th><th>Items / Order Details</th><th>Delivery</th><th>Amount</th><th>Status</th><th>Payment</th></tr></thead><tbody>{filtered.map(o=><OrderRow key={o.id} o={o} data={data} change={change}/>)}</tbody></table></div></div><div className="mobile-order-list">{filtered.map(o=><div className="mobile-order-card" key={o.id}><div className="mobile-order-top"><div className="customer-cell"><div className="avatar small">{String(o.customer||'?')[0]}</div><div><strong>{o.customer}</strong><span>{o.phone}</span>{o.code&&<small className="order-card-code">{o.code}</small>}</div></div></div><div className="mobile-order-item">{orderDetails(o,data,true)}</div><div className="mobile-order-meta"><span><b>Delivery</b>{formatDate(o.delivery)}</span><span><b>Payment</b>{o.paymentStatus||'Not Paid'}</span><span><b>Amount</b>₹{Number(o.totalAmount||o.finalTotal||o.total||0).toLocaleString('en-IN')}</span></div><div className="mobile-order-actions"><select className={'status-select '+statusClass(o.status)} value={o.status} onChange={e=>change(o,e.target.value)}>{statusOptions()}</select></div></div>)}{filtered.length===0&&<div className="empty">No orders found.</div>}</div></section></div>}
+function OrdersView({page,data,credential,onSaved,navigate,categories}){
+  const [q,setQ]=useState(''),[type,setType]=useState('All'),[cat,setCat]=useState('All Categories'),[status,setStatus]=useState('All Statuses'),[payment,setPayment]=useState('All Payments'),[editing,setEditing]=useState(null);
+  const wanted=page==='pending'?[...data.orders].filter(o=>!['Delivered','Cancelled / Damaged'].includes(o.status)).sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0)):page==='delivered'?[...data.orders].filter(o=>o.status==='Delivered').sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0)):page==='cancelled'?[...data.orders].filter(o=>o.status==='Cancelled / Damaged').sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0)):[...data.orders].sort((a,b)=>{const rank=o=>o.status==='Cancelled / Damaged'?2:o.status==='Delivered'?1:0;return rank(a)-rank(b)||new Date(b.createdAt||0)-new Date(a.createdAt||0)});
+  const filtered=wanted.filter(o=>{const text=((o.customer||'')+' '+(o.phone||'')+' '+(o.code||'')).toLowerCase();const items=data.order_items.filter(i=>String(i.orderId)===String(o.id));const cats=[...(o.categories||[]),...items.map(i=>i.category)];return text.includes(q.toLowerCase())&&(type==='All'||o.type===type)&&(cat==='All Categories'||cats.includes(cat))&&(status==='All Statuses'||o.status===status)&&(payment==='All Payments'||(o.paymentStatus||'Not Paid')===payment)});
+  const change=async(o,s)=>{try{await api('updateOrder',{order:{id:o.id,status:s}},credential);await onSaved()}catch(e){alert(e.message)}};
+  const openEdit=o=>setEditing(o);
+  const editSaved=async()=>{setEditing(null);await onSaved()};
+  return <div><div className="page-heading"><div><div className="eyebrow">ORDERS</div><h1>{page==='all-orders'?'All Orders':page==='pending'?'Pending Orders':page==='delivered'?'Delivered Orders':'Cancelled / Damaged Orders'}</h1><p>Search, edit and update orders from any phone.</p></div><button className="primary-btn" onClick={()=>navigate('new-order')}><Plus size={18}/> New Order</button></div><section className="panel table-panel"><div className="filters"><div className="search"><Search size={17}/><input placeholder="Search customer, phone or SKC…" value={q} onChange={e=>setQ(e.target.value)}/></div><select value={type} onChange={e=>setType(e.target.value)}><option>All</option><option>Personal</option><option>Bulk</option></select><select value={cat} onChange={e=>setCat(e.target.value)}><option>All Categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select><select value={status} onChange={e=>setStatus(e.target.value)}><option>All Statuses</option>{['Pending','In Production','Ready','Delivered','Cancelled / Damaged'].map(s=><option key={s}>{s}</option>)}</select><select value={payment} onChange={e=>setPayment(e.target.value)}><option>All Payments</option><option>Not Paid</option><option>Partially Paid</option><option>Paid</option></select></div><div className="desktop-table"><div className="table-wrap"><table><thead><tr><th>Customer</th><th>Items / Order Details</th><th>Delivery</th><th>Amount</th><th>Status</th><th>Payment</th><th>Action</th></tr></thead><tbody>{filtered.map(o=><OrderRow key={o.id} o={o} data={data} change={change} edit={openEdit}/>)}</tbody></table></div></div><div className="mobile-order-list">{filtered.map(o=><div className="mobile-order-card" key={o.id}><div className="mobile-order-top"><div className="customer-cell"><div className="avatar small">{String(o.customer||'?')[0]}</div><div><strong>{o.customer}</strong><span>{o.phone}</span>{o.code&&<small className="order-card-code">{o.code}</small>}</div></div><button type="button" className="outline-btn mobile-edit-order" onClick={()=>openEdit(o)}><Pencil size={13}/> Edit</button></div><div className="mobile-order-item">{orderDetails(o,data,true)}</div><div className="mobile-order-meta"><span><b>Delivery</b>{formatDate(o.delivery)}</span><span><b>Payment</b>{o.paymentStatus||'Not Paid'}</span><span><b>Amount</b>₹{Number(o.totalAmount||o.finalTotal||o.total||0).toLocaleString('en-IN')}</span></div><div className="mobile-order-actions"><select className={'status-select '+statusClass(o.status)} value={o.status} onChange={e=>change(o,e.target.value)}>{statusOptions()}</select></div></div>)}{filtered.length===0&&<div className="empty">No orders found.</div>}</div></section>{editing&&<OrderEditModal order={editing} data={data} credential={credential} categories={categories} close={()=>setEditing(null)} onSaved={editSaved}/>}</div>
+}
 
-function OrderRow({o,data,change}){return <tr><td><div className="customer-cell"><div className="avatar small">{String(o.customer||'?')[0]}</div><div><strong>{o.customer}</strong><span>{o.phone}</span>{o.code&&<small className="table-sub">{o.code}</small>}</div></div></td><td>{orderDetails(o,data,false)}</td><td>{formatDate(o.delivery)}</td><td>₹{Number(o.finalTotal||o.totalAmount||o.total||0).toLocaleString('en-IN')}</td><td><select className={'status-select '+statusClass(o.status)} value={o.status} onChange={e=>change(o,e.target.value)}>{statusOptions()}</select></td><td>{o.paymentStatus||'Not Paid'}</td></tr>}
+function OrderRow({o,data,change,edit}){return <tr><td><div className="customer-cell"><div className="avatar small">{String(o.customer||'?')[0]}</div><div><strong>{o.customer}</strong><span>{o.phone}</span>{o.code&&<small className="table-sub">{o.code}</small>}</div></div></td><td>{orderDetails(o,data,false)}</td><td>{formatDate(o.delivery)}</td><td>₹{Number(o.finalTotal||o.totalAmount||o.total||0).toLocaleString('en-IN')}</td><td><select className={'status-select '+statusClass(o.status)} value={o.status} onChange={e=>change(o,e.target.value)}>{statusOptions()}</select></td><td>{o.paymentStatus||'Not Paid'}</td><td><button type="button" className="outline-btn order-edit-btn" onClick={()=>edit(o)}><Pencil size={13}/> Edit</button></td></tr>}
 
 function statusOptions(){return ['Pending','In Production','Ready','Delivered','Cancelled / Damaged'].map(s=><option key={s}>{s}</option>)}
 function orderItems(o,data){return data.order_items.filter(i=>String(i.orderId)===String(o.id))}
-function orderDetails(o,data,compact=false){const its=orderItems(o,data);if(!its.length)return <span className="muted">No product details</span>;const groups=[];its.forEach(i=>{const key=[i.product||'Product',i.sellingUnit||'',i.customizationDetails||'',i.referenceImageUrl||''].join('||');let g=groups.find(x=>x.key===key);if(!g){g={key,product:i.product||'Product',sellingUnit:i.sellingUnit||'Per Piece',quantity:0,colours:[],customizationDetails:String(i.customizationDetails||''),referenceImageUrl:String(i.referenceImageUrl||'')};groups.push(g)}g.quantity+=Number(i.quantity||0);const c=String(i.colour||'').trim();if(c){const existing=g.colours.find(x=>x.colour===c);if(existing)existing.quantity+=Number(i.quantity||0);else g.colours.push({colour:c,quantity:Number(i.quantity||0)})}});return <div className={'order-details '+(compact?'compact':'')}>{groups.map(g=><div className="order-detail-group" key={g.key}><div className="order-detail-main"><strong>{g.product}</strong><span>{g.quantity} × {g.sellingUnit}</span></div><div className="order-detail-colours">{g.colours.map(c=><span key={c.colour}>{c.colour}: {c.quantity}</span>)}</div>{g.customizationDetails&&<div className="order-customization"><b>Customization</b><span>{g.customizationDetails}</span></div>}{g.referenceImageUrl&&<a className="order-reference" href={g.referenceImageUrl} target="_blank" rel="noreferrer"><img src={g.referenceImageUrl} alt="Customization reference"/><span>Reference image</span></a>}</div>)}</div>}
+function cloneEditItem(i={}){return {_key:localId(),product:String(i.product||''),productId:String(i.productId||''),productSearch:String(i.product||''),category:String(i.category||''),productImage:String(i.productImage||''),sellingUnit:String(i.sellingUnit||'Per Piece'),piecesPerUnit:Number(i.piecesPerUnit||1),quantity:Number(i.quantity||1),colourAllocations:[{colour:String(i.colour||''),quantity:Number(i.quantity||1)}],customizationRequired:!!i.customizationRequired,customizationDetails:String(i.customizationDetails||''),referenceImageUrl:String(i.referenceImageUrl||''),unitPrice:Number(i.unitPrice||0)}}
+
+function OrderEditModal({order,data,credential,onSaved,close}){
+  const existing=useMemo(()=>{
+    const rows=orderItems(order,data);
+    const groups=[];
+
+    rows.forEach(i=>{
+      const key=[
+        i.product||'',
+        i.sellingUnit||'Per Piece',
+        i.customizationDetails||'',
+        i.referenceImageUrl||''
+      ].join('||');
+
+      let g=groups.find(x=>x.key===key);
+
+      if(!g){
+        g={
+          _key:localId(),
+          product:i.product||'',
+          productId:i.productId||'',
+          productSearch:i.product||'',
+          category:i.category||'',
+          productImage:i.productImage||'',
+          sellingUnit:i.sellingUnit||'Per Piece',
+          piecesPerUnit:Number(i.piecesPerUnit||1),
+          quantity:0,
+          unitPrice:Number(i.unitPrice||0),
+          colourAllocations:[],
+          customizationRequired:!!i.customizationRequired,
+          customizationDetails:String(i.customizationDetails||''),
+          referenceImageUrl:String(i.referenceImageUrl||'')
+        };
+        groups.push(g);
+      }
+
+      g.quantity+=Number(i.quantity||0);
+
+      const colour=String(i.colour||'').trim();
+      if(colour){
+        const found=g.colourAllocations.find(a=>a.colour===colour);
+        if(found) found.quantity+=Number(i.quantity||0);
+        else g.colourAllocations.push({
+          colour,
+          quantity:Number(i.quantity||0)
+        });
+      }
+    });
+
+    return groups;
+  },[order,data]);
+
+  const [form,setForm]=useState({
+    customer:String(order.customer||''),
+    phone:String(order.phone||''),
+    address:String(order.address||''),
+    delivery:dateInputValue(order.delivery),
+    notes:String(order.notes||''),
+    status:String(order.status||'Pending'),
+    discountAmount:Number(order.discountAmount||0),
+    paidAmount:Number(order.paidAmount||0),
+    items:existing
+  });
+
+  const [saving,setSaving]=useState(false);
+
+  useEffect(()=>{
+    setForm({
+      customer:String(order.customer||''),
+      phone:String(order.phone||''),
+      address:String(order.address||''),
+      delivery:dateInputValue(order.delivery),
+      notes:String(order.notes||''),
+      status:String(order.status||'Pending'),
+      discountAmount:Number(order.discountAmount||0),
+      paidAmount:Number(order.paidAmount||0),
+      items:existing
+    });
+  },[order,existing]);
+
+  const update=(key,value)=>{
+    setForm(f=>({...f,[key]:value}));
+  };
+
+  const updateItem=(index,key,value)=>{
+    setForm(f=>({
+      ...f,
+      items:f.items.map((x,i)=>i===index?({...x,[key]:value}):x)
+    }));
+  };
+
+  const removeItem=index=>{
+    setForm(f=>({
+      ...f,
+      items:f.items.filter((_,i)=>i!==index)
+    }));
+  };
+
+  const addItem=()=>{
+    setForm(f=>({
+      ...f,
+      items:[
+        ...f.items,
+        {
+          _key:localId(),
+          product:'',
+          productId:'',
+          productSearch:'',
+          category:'',
+          productImage:'',
+          sellingUnit:'Per Piece',
+          piecesPerUnit:1,
+          quantity:1,
+          unitPrice:0,
+          colourAllocations:[{colour:'',quantity:1}],
+          customizationRequired:false,
+          customizationDetails:'',
+          referenceImageUrl:''
+        }
+      ]
+    }));
+  };
+
+  const subtotal=form.items.reduce(
+    (sum,x)=>sum+Number(x.unitPrice||0)*Number(x.quantity||0),
+    0
+  );
+
+  const discount=Math.min(
+    Math.max(0,Number(form.discountAmount)||0),
+    subtotal
+  );
+
+  const finalTotal=Math.max(0,subtotal-discount);
+  const paid=Math.max(0,Number(form.paidAmount)||0);
+  const balance=Math.max(0,finalTotal-paid);
+  const tip=Math.max(0,paid-finalTotal);
+
+  const paymentStatus=
+    paid<=0
+      ? 'Not Paid'
+      : paid>=finalTotal
+        ? 'Paid'
+        : 'Partially Paid';
+
+  const actualPieces=form.items.reduce(
+    (sum,x)=>sum+
+      Number(x.quantity||0)*Number(x.piecesPerUnit||1),
+    0
+  );
+
+  const save=async e=>{
+    e.preventDefault();
+
+    if(!form.customer.trim()){
+      alert('Customer name is required.');
+      return;
+    }
+
+    if(!form.phone.trim()){
+      alert('Phone number is required.');
+      return;
+    }
+
+    if(!form.address.trim()){
+      alert('Delivery address is required.');
+      return;
+    }
+
+    if(!form.delivery){
+      alert('Delivery date is required.');
+      return;
+    }
+
+    if(!form.items.length){
+      alert('At least one product is required.');
+      return;
+    }
+
+    const normalized=[];
+
+    for(const item of form.items){
+
+      if(!item.product){
+        alert('Please select a product for every product line.');
+        return;
+      }
+
+      if(Number(item.quantity||0)<1){
+        alert(`Quantity for ${item.product} must be at least 1.`);
+        return;
+      }
+
+      const allocations=
+        Array.isArray(item.colourAllocations)
+          ? item.colourAllocations
+          : [];
+
+      const cleanAllocations=allocations
+        .map(a=>({
+          colour:String(a?.colour||'').trim(),
+          quantity:Number(a?.quantity||0)
+        }))
+        .filter(a=>a.quantity>0);
+
+      const allocatedQty=cleanAllocations.reduce(
+        (sum,a)=>sum+a.quantity,
+        0
+      );
+
+      if(
+        !cleanAllocations.length ||
+        cleanAllocations.some(a=>!a.colour)
+      ){
+        alert(`Please complete colour allocation for ${item.product}.`);
+        return;
+      }
+
+      if(allocatedQty!==Number(item.quantity)){
+        alert(
+          `Colour quantities for ${item.product} must equal the product quantity (${item.quantity}).`
+        );
+        return;
+      }
+
+      if(
+        item.customizationRequired &&
+        !String(item.customizationDetails||'').trim()
+      ){
+        alert(`Customization details are required for ${item.product}.`);
+        return;
+      }
+
+      const piecesPerUnit=
+        item.sellingUnit==='Set of 2'?2:1;
+
+      cleanAllocations.forEach(a=>{
+        normalized.push({
+          ...item,
+          colour:a.colour,
+          quantity:a.quantity,
+          piecesPerUnit,
+          unitPrice:Number(item.unitPrice||0),
+          lineTotal:
+            Number(item.unitPrice||0)*a.quantity,
+          colourAllocations:undefined
+        });
+      });
+    }
+
+    if(paid<0){
+      alert('Paid amount cannot be negative.');
+      return;
+    }
+
+    if(paid>finalTotal){
+      alert(
+        'Paid amount is greater than the final total. The excess will be treated as Tip / Extra. Please use the calculated amount intentionally.'
+      );
+    }
+
+    setSaving(true);
+
+    try{
+      await api(
+        'updateOrder',
+        {
+          order:{
+            id:order.id,
+            customer:form.customer,
+            phone:form.phone,
+            address:form.address,
+            delivery:form.delivery,
+            notes:form.notes,
+            status:form.status,
+            discountAmount:discount,
+            paidAmount:paid,
+            paymentStatus,
+            subtotal,
+            finalTotal,
+            totalAmount:finalTotal,
+            tipAmount:tip,
+            balance,
+            actualPieces,
+            type:actualPieces>50?'Bulk':'Personal',
+            items:normalized
+          }
+        },
+        credential
+      );
+
+      await onSaved();
+      close();
+    }catch(e){
+      alert(e.message);
+    }finally{
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal order-edit-modal">
+
+        <div className="modal-head order-edit-header">
+          <div>
+            <div className="order-edit-kicker">ORDER MANAGEMENT</div>
+            <h3>Edit Order · {order.code||order.id}</h3>
+            <p>Update customer, products, payment and delivery details.</p>
+          </div>
+
+         <button
+  type="button"
+  className="icon-btn"
+  onClick={(e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  }}
+  aria-label="Close Edit Order"
+>
+  <X size={17}/>
+</button>
+        </div>
+
+        <form onSubmit={save}>
+
+          {/* CUSTOMER DETAILS */}
+
+          <section className="order-edit-section">
+
+            <div className="order-edit-section-title">
+              <div>
+                <strong>Customer Details</strong>
+                <span>Edit the order information.</span>
+              </div>
+            </div>
+
+            <div className="order-edit-grid">
+
+              <label>
+                Customer Name
+                <input
+                  value={form.customer}
+                  onChange={e=>update('customer',e.target.value)}
+                />
+              </label>
+
+              <label>
+                Phone Number
+                <input
+                  value={form.phone}
+                  onChange={e=>update('phone',e.target.value)}
+                />
+              </label>
+
+              <label>
+                Delivery Address
+                <input
+                  value={form.address}
+                  onChange={e=>update('address',e.target.value)}
+                />
+              </label>
+
+              <label>
+                Delivery Date
+                <input
+                  type="date"
+                  value={form.delivery}
+                  onChange={e=>update('delivery',e.target.value)}
+                />
+              </label>
+
+              <label className="order-edit-notes">
+                Notes
+                <textarea
+                  value={form.notes}
+                  onChange={e=>update('notes',e.target.value)}
+                />
+              </label>
+
+              <label>
+                Status
+                <select
+                  value={form.status}
+                  onChange={e=>update('status',e.target.value)}
+                >
+                  {statusOptions()}
+                </select>
+              </label>
+
+            </div>
+          </section>
+
+          {/* PRODUCTS */}
+
+          <section className="order-edit-section">
+
+            <div className="order-edit-section-title">
+              <div>
+                <strong>Products</strong>
+                <span>Edit quantity, colour, sold as, price and customization.</span>
+              </div>
+
+              <span className="order-edit-count">
+                {form.items.length}
+                {form.items.length===1?' Product':' Products'}
+              </span>
+            </div>
+
+            <div className="order-edit-products">
+
+              {form.items.map((item,index)=>(
+                <EditProductLine
+                  key={item._key}
+                  index={index}
+                  item={item}
+                  products={data.products}
+                  update={updateItem}
+                  remove={removeItem}
+                  canRemove={form.items.length>1}
+                />
+              ))}
+
+            </div>
+
+            {/* ADD PRODUCT AFTER THE LAST PRODUCT */}
+
+            <button
+              type="button"
+              className="outline-btn order-edit-add-product"
+              onClick={addItem}
+            >
+              <Plus size={15}/>
+              Add Product
+            </button>
+
+          </section>
+
+          {/* ORDER SUMMARY */}
+
+          <section className="order-edit-section order-edit-finance">
+
+            <div className="order-edit-section-title">
+              <div>
+                <strong>Order Summary</strong>
+                <span>Totals update automatically from the products and discount.</span>
+              </div>
+            </div>
+
+            <div className="order-edit-money-grid">
+
+              <div className="order-edit-money-card">
+                <span>Subtotal</span>
+                <strong>
+                  ₹{subtotal.toLocaleString('en-IN')}
+                </strong>
+              </div>
+
+              <label className="order-edit-money-card editable-money">
+                <span>Discount</span>
+                <input
+                  type="number"
+                  min="0"
+                  max={subtotal}
+                  value={form.discountAmount}
+                  onChange={e=>update('discountAmount',e.target.value)}
+                />
+              </label>
+
+              <div className="order-edit-money-card total-money">
+                <span>Final Total</span>
+                <strong>
+                  ₹{finalTotal.toLocaleString('en-IN')}
+                </strong>
+              </div>
+
+            </div>
+
+          </section>
+
+          {/* PAYMENT */}
+
+          <section className="order-edit-section order-edit-finance">
+
+            <div className="order-edit-section-title">
+              <div>
+                <strong>Payment</strong>
+                <span>Payment can be updated at any time, including after delivery.</span>
+              </div>
+            </div>
+
+            <div className="order-edit-money-grid">
+
+              <div className="order-edit-money-card">
+                <span>Total Amount</span>
+                <strong>
+                  ₹{finalTotal.toLocaleString('en-IN')}
+                </strong>
+              </div>
+
+              <label className="order-edit-money-card editable-money">
+                <span>Paid Amount</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.paidAmount}
+                  onChange={e=>update('paidAmount',e.target.value)}
+                />
+              </label>
+
+              <div className="order-edit-money-card">
+                <span>Payment Status</span>
+                <strong className={
+                  'payment-status '+
+                  paymentStatus.toLowerCase().replaceAll(' ','-')
+                }>
+                  {paymentStatus}
+                </strong>
+              </div>
+
+              <div className="order-edit-money-card">
+                <span>Balance</span>
+                <strong>
+                  ₹{balance.toLocaleString('en-IN')}
+                </strong>
+              </div>
+
+              <div className="order-edit-money-card">
+                <span>Tip / Extra</span>
+                <strong>
+                  ₹{tip.toLocaleString('en-IN')}
+                </strong>
+              </div>
+
+              <div className="order-edit-money-card">
+                <span>Actual Pieces</span>
+                <strong>
+                  {actualPieces}
+                </strong>
+              </div>
+
+            </div>
+
+          </section>
+
+          {/* FOOTER */}
+
+          <div className="order-edit-footer">
+
+            <button
+  type="button"
+  className="outline-btn"
+  onClick={(e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  }}
+>
+  Cancel
+</button>
+
+            <button
+              type="submit"
+              className="primary-btn"
+              disabled={saving}
+            >
+              <Save size={16}/>
+              {saving?'Saving…':'Save Changes'}
+            </button>
+
+          </div>
+
+        </form>
+
+      </div>
+    </div>
+  );
+}
+
+
+function EditProductLine({
+  index,
+  item,
+  products,
+  update,
+  remove,
+  canRemove
+}){
+  const selected=
+    products.find(p=>String(p.id)===String(item.productId)) ||
+    products.find(p=>p.name===item.product) ||
+    null;
+
+  const colours=
+    selected?.colours
+      ? String(selected.colours).split('|').filter(Boolean)
+      : COLOURS;
+
+  const allocationColours=[
+    ...new Set([...colours,'Any Colour'])
+  ];
+
+  const allocations=
+    Array.isArray(item.colourAllocations) &&
+    item.colourAllocations.length
+      ? item.colourAllocations
+      : [{colour:'',quantity:Number(item.quantity||1)}];
+
+  const allocatedQty=allocations.reduce(
+    (sum,a)=>sum+Number(a.quantity||0),
+    0
+  );
+
+  const matches=useMemo(()=>{
+    const q=String(item.productSearch||'')
+      .trim()
+      .toLowerCase();
+
+    if(!q)return [];
+
+    return products
+      .filter(p=>
+        String(p.name||'').toLowerCase().includes(q) ||
+        String(p.category||'').toLowerCase().includes(q)
+      )
+      .slice(0,8);
+  },[item.productSearch,products]);
+
+  const updateLocal=(key,value)=>{
+    update(index,key,value);
+  };
+
+  const chooseProduct=p=>{
+    update(index,'productId',p.id);
+    update(index,'product',p.name);
+    update(index,'productSearch',p.name);
+    update(index,'category',p.category||'');
+    update(index,'productImage',p.imageUrl||'');
+
+    const price=
+      item.sellingUnit==='Set of 2'
+        ? Number(p.sellingPriceSet2||0)
+        : Number(p.sellingPricePiece||0);
+
+    update(index,'unitPrice',price);
+
+    update(index,'colourAllocations',[
+      {
+        colour:'',
+        quantity:Number(item.quantity||1)
+      }
+    ]);
+  };
+
+  const changeSearch=value=>{
+    update(index,'productSearch',value);
+
+    if(selected && value!==selected.name){
+      update(index,'productId','');
+      update(index,'product','');
+      update(index,'productImage','');
+      update(index,'unitPrice',0);
+      update(index,'colourAllocations',[
+        {
+          colour:'',
+          quantity:Number(item.quantity||1)
+        }
+      ]);
+    }
+  };
+
+  const changeQuantity=value=>{
+    const q=Math.max(1,Number(value)||1);
+
+    update(index,'quantity',q);
+
+    if(allocations.length===1){
+      update(index,'colourAllocations',[
+        {
+          ...allocations[0],
+          quantity:q
+        }
+      ]);
+    }
+  };
+
+  const changeSoldAs=value=>{
+    update(index,'sellingUnit',value);
+    update(
+      index,
+      'piecesPerUnit',
+      value==='Set of 2'?2:1
+    );
+
+    if(selected){
+      update(
+        index,
+        'unitPrice',
+        Number(
+          value==='Set of 2'
+            ? selected.sellingPriceSet2||0
+            : selected.sellingPricePiece||0
+        )
+      );
+    }
+  };
+
+  const updateAllocation=(aidx,key,value)=>{
+    const next=allocations.map((a,i)=>
+      i===aidx
+        ? {
+            ...a,
+            [key]:
+              key==='quantity'
+                ? Math.max(0,Number(value)||0)
+                : value
+          }
+        : a
+    );
+
+    update(index,'colourAllocations',next);
+  };
+
+  const addAllocation=()=>{
+    update(index,'colourAllocations',[
+      ...allocations,
+      {
+        colour:'',
+        quantity:Math.max(
+          0,
+          Number(item.quantity||0)-allocatedQty
+        )
+      }
+    ]);
+  };
+
+  const removeAllocation=aidx=>{
+    if(allocations.length===1)return;
+
+    update(
+      index,
+      'colourAllocations',
+      allocations.filter((_,i)=>i!==aidx)
+    );
+  };
+
+  const upload=async e=>{
+    const f=e.target.files?.[0];
+    if(!f)return;
+
+    update(index,'_uploading',true);
+
+    try{
+      const file=await fileData(f);
+
+      const r=await api(
+        'uploadImage',
+        {
+          file:{
+            name:f.name,
+            mimeType:f.type,
+            data:file
+          }
+        },
+        window.sessionStorage.getItem('sk_credential')
+      );
+
+      update(index,'referenceImageUrl',r.data.url);
+    }catch(err){
+      alert(err.message);
+    }finally{
+      update(index,'_uploading',false);
+    }
+  };
+
+  return (
+    <div className="order-edit-product">
+
+      <div className="order-edit-product-head">
+
+        <div>
+          <span className="order-edit-product-number">
+            PRODUCT {index+1}
+          </span>
+          <strong>
+            {selected?.name||item.product||'Add a product'}
+          </strong>
+        </div>
+
+        {canRemove&&(
+          <button
+            type="button"
+            onClick={()=>remove(index)}
+          >
+            <X size={13}/>
+            Remove
+          </button>
+        )}
+
+      </div>
+
+      {/* PRODUCT SEARCH */}
+
+      <div className="order-edit-product-search">
+
+        <label>
+          Product
+
+          <input
+            value={item.productSearch||''}
+            onChange={e=>changeSearch(e.target.value)}
+            placeholder="Search product..."
+            autoComplete="off"
+          />
+
+          {!selected &&
+            String(item.productSearch||'').trim() && (
+              <div className="product-search-popover">
+
+                {matches.length>0
+                  ? matches.map(p=>(
+                      <button
+                        type="button"
+                        key={p.id}
+                        onClick={()=>chooseProduct(p)}
+                      >
+                        <div className="search-product-thumb">
+                          {p.imageUrl
+                            ? <img src={p.imageUrl} alt=""/>
+                            : <Tags size={15}/>
+                          }
+                        </div>
+
+                        <div>
+                          <strong>{p.name}</strong>
+                          <span>{shortCategory(p.category)}</span>
+                        </div>
+                      </button>
+                    ))
+                  : (
+                    <div className="product-search-empty">
+                      No matching products found.
+                    </div>
+                  )
+                }
+
+              </div>
+            )
+          }
+
+        </label>
+
+      </div>
+
+      {/* SELECTED PRODUCT */}
+
+      {selected&&(
+        <div className="order-edit-selected-product">
+
+          <div className="order-edit-selected-image">
+
+            {selected.imageUrl
+              ? <img
+                  src={selected.imageUrl}
+                  alt={selected.name}
+                />
+              : <div className="product-placeholder">
+                  <Tags size={25}/>
+                  <span>No image</span>
+                </div>
+            }
+
+          </div>
+
+          <div className="order-edit-selected-info">
+
+            <strong>{selected.name}</strong>
+
+            <span>
+              {selected.category}
+            </span>
+
+            <small>
+              {selected.source||'In-house'}
+            </small>
+
+          </div>
+
+        </div>
+      )}
+
+      {/* QUANTITY / SOLD AS / PRICE */}
+
+      <div className="order-edit-product-fields">
+
+        <label>
+          Quantity
+          <input
+            type="number"
+            min="1"
+            value={item.quantity}
+            onChange={e=>changeQuantity(e.target.value)}
+          />
+        </label>
+
+        <label>
+          Sold As
+          <select
+            value={item.sellingUnit}
+            onChange={e=>changeSoldAs(e.target.value)}
+            disabled={!selected}
+          >
+            <option>Per Piece</option>
+            <option>Set of 2</option>
+          </select>
+        </label>
+
+        <label>
+          Unit Price
+          <input
+            type="number"
+            min="0"
+            value={item.unitPrice}
+            onChange={e=>
+              updateLocal(
+                'unitPrice',
+                Math.max(0,Number(e.target.value)||0)
+              )
+            }
+          />
+        </label>
+
+      </div>
+
+      {/* COLOUR */}
+
+      <div className="order-edit-colour-box">
+
+        <div className="order-edit-colour-head">
+
+          <div>
+            <strong>Colour Allocation</strong>
+            <span>
+              Split the product quantity across colours.
+            </span>
+          </div>
+
+          <span
+            className={
+              allocatedQty===Number(item.quantity)
+                ? 'allocation-ok'
+                : 'allocation-error'
+            }
+          >
+            {allocatedQty} / {Number(item.quantity||0)}
+          </span>
+
+        </div>
+
+        {allocations.map((a,aidx)=>(
+          <div
+            className="order-edit-colour-row"
+            key={`${item._key}-colour-${aidx}`}
+          >
+
+            <select
+              value={a.colour}
+              onChange={e=>
+                updateAllocation(
+                  aidx,
+                  'colour',
+                  e.target.value
+                )
+              }
+              disabled={!selected}
+            >
+              <option value="">
+                Select colour
+              </option>
+
+              {allocationColours.map(c=>(
+                <option key={c}>{c}</option>
+              ))}
+
+            </select>
+
+            <input
+              type="number"
+              min="0"
+              max={Number(item.quantity||0)}
+              value={a.quantity}
+              onChange={e=>
+                updateAllocation(
+                  aidx,
+                  'quantity',
+                  e.target.value
+                )
+              }
+              disabled={!selected}
+            />
+
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={()=>removeAllocation(aidx)}
+              disabled={allocations.length===1}
+            >
+              <X size={13}/>
+            </button>
+
+          </div>
+        ))}
+
+        <button
+          type="button"
+          className="text-btn order-edit-add-colour"
+          onClick={addAllocation}
+          disabled={!selected}
+        >
+          <Plus size={13}/>
+          Add another colour
+        </button>
+
+      </div>
+
+      {/* CUSTOMIZATION */}
+
+      <div className="order-edit-custom">
+
+        <label className="check-label">
+          <input
+            type="checkbox"
+            checked={!!item.customizationRequired}
+            onChange={e=>
+              updateLocal(
+                'customizationRequired',
+                e.target.checked
+              )
+            }
+            disabled={!selected}
+          />
+          Customization required
+        </label>
+
+        {item.customizationRequired&&(
+          <div className="order-edit-custom-grid">
+
+            <label>
+              Customization Details *
+              <textarea
+                required
+                value={item.customizationDetails||''}
+                onChange={e=>
+                  updateLocal(
+                    'customizationDetails',
+                    e.target.value
+                  )
+                }
+                placeholder="Enter exactly what the customer wants..."
+              />
+            </label>
+
+            <label className="upload-box order-edit-upload">
+              <Upload size={15}/>
+
+              {item._uploading
+                ? 'Uploading…'
+                : item.referenceImageUrl
+                  ? 'Reference image added'
+                  : 'Add reference image'
+              }
+
+              <input
+                type="file"
+                accept="image/*"
+                onChange={upload}
+              />
+            </label>
+
+          </div>
+        )}
+
+      </div>
+
+    </div>
+  );
+}
+
+function orderDetails(o,data,compact=false){
+  const its=orderItems(o,data);
+  if(!its.length)return <span className="muted">No product details</span>;
+
+  const groups=[];
+  its.forEach(i=>{
+    const key=[i.product||'',i.sellingUnit||'',i.customizationDetails||'',i.referenceImageUrl||''].join('||');
+    let g=groups.find(x=>x.key===key);
+
+    if(!g){
+      g={
+        key,
+        product:i.product||'Product',
+        sellingUnit:i.sellingUnit||'Per Piece',
+        quantity:0,
+        colours:[],
+        customizationDetails:String(i.customizationDetails||''),
+        referenceImageUrl:String(i.referenceImageUrl||'')
+      };
+      groups.push(g);
+    }
+
+    g.quantity+=Number(i.quantity||0);
+
+    const c=String(i.colour||'').trim();
+    if(c){
+      const existing=g.colours.find(x=>x.colour===c);
+      if(existing)existing.quantity+=Number(i.quantity||0);
+      else g.colours.push({colour:c,quantity:Number(i.quantity||0)});
+    }
+  });
+
+  return <div className={'order-details '+(compact?'compact':'')}>
+    {groups.map(g=><div className="order-detail-group" key={g.key}>
+      <div className="order-detail-main">
+        <strong>{g.product}</strong>
+        <span>{g.quantity} × {g.sellingUnit}</span>
+      </div>
+
+      <div className="order-detail-colours">
+        {g.colours.map(c=><span key={c.colour}>{c.colour}: {c.quantity}</span>)}
+      </div>
+
+      {g.customizationDetails&&<div className="order-customization">
+        <b>Customization</b>
+        <span>{g.customizationDetails}</span>
+      </div>}
+
+      {g.referenceImageUrl&&<a className="order-reference" href={g.referenceImageUrl} target="_blank" rel="noreferrer">
+        <img src={g.referenceImageUrl} alt="Customization reference"/>
+        <span>Reference image</span>
+      </a>}
+    </div>)}
+  </div>
+}
+
 function itemSummary(o,data){return orderItems(o,data).map(i=>`${i.quantity} × ${i.product}${i.sellingUnit?' ('+i.sellingUnit+')':''}${i.colour?' · '+i.colour:''}`).join(' · ')||o.items||'—'}
 function categorySummary(o,data){const cats=[...(o.categories||[]),...orderItems(o,data).map(i=>i.category)];return [...new Set(cats)].filter(Boolean).map(c=><span className="category-pill" key={c}>{shortCategory(c)}</span>)}
 function Inventory({data,credential,onSaved,categories}){const [cat,setCat]=useState('All Categories');const [open,setOpen]=useState(false);const [form,setForm]=useState({category:categories[0],product:'',colour:'',stock:0,minimum:0,unit:'pcs',source:'In-house'});const list=data.inventory.filter(i=>cat==='All Categories'||i.category===cat);const save=async()=>{try{await api('createInventory',{item:form},credential);setOpen(false);await onSaved()}catch(e){alert(e.message)}};return <div><div className="page-heading"><div><div className="eyebrow">INVENTORY</div><h1>Product Inventory</h1><p>Track stock down to product + colour/variant.</p></div><button className="primary-btn" onClick={()=>setOpen(true)}><Plus size={18}/> Add Stock</button></div><div className="category-tabs">{['All Categories',...categories].map(c=><button className={cat===c?'active':''} key={c} onClick={()=>setCat(c)}>{c}</button>)}</div><section className="panel table-panel"><div className="table-wrap"><table><thead><tr><th>Product</th><th>Category</th><th>Colour / Variant</th><th>Stock</th><th>Minimum</th><th>Need to Order</th><th>Status</th></tr></thead><tbody>{list.map(i=>{const need=Math.max(0,Number(i.minimum)-Number(i.stock));return <tr key={i.id}><td><strong>{i.product}</strong></td><td>{shortCategory(i.category)}</td><td>{i.colour}</td><td>{i.stock} {i.unit}</td><td>{i.minimum}</td><td><b>{need}</b></td><td>{need?<span className="stock-low">Low Stock</span>:<span className="stock-good">Healthy</span>}</td></tr>})}</tbody></table></div></section>{open&&<Modal title="Add Product Stock" close={()=>setOpen(false)}><SimpleInventory form={form} setForm={setForm} data={data} categories={categories}/><button className="primary-btn full" onClick={save}><Save size={16}/> Save Stock</button></Modal>}</div>}
